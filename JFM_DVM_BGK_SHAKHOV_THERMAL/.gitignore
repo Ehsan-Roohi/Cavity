@@ -1,5 +1,5 @@
 bin/
-results_dvm_kn30_v3/
+results_dvm_jfm/
 slurm-*.out
 slurm-*.err
 __pycache__/
