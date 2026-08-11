@@ -39,14 +39,20 @@ continues to be DSMC.
 
 ## Prepared production cases
 
-The Slurm array contains:
+The production Slurm array contains the 12 BGK/Shakhov cases needed for the
+current revision campaign:
 
 | Task | Model | Paper Kn | RT |
 |---:|---|---:|---:|
-| 0 | BGK | 30 | 0.2 |
-| 1 | Shakhov | 30 | 0.2 |
-| 2 | BGK | 30 | 0.5 |
-| 3 | Shakhov | 30 | 0.5 |
+| 0--5 | BGK/Shakhov | 20, 10, 5 | 0.2 |
+| 6--11 | BGK/Shakhov | 20, 10, 5 | 0.5 |
+
+The single-case runner is general in paper Kn and is called as
+`run_dvm_thermal_case.sh MODEL RT KN LEVEL`.  For example:
+
+```bash
+OMP_NUM_THREADS=16 bash scripts/run_dvm_thermal_case.sh shakhov 0.2 10 production
+```
 
 Production resolution is `51 x 51` cells in the quarter domain (equivalent to
 `102 x 102` reconstructed full-domain cells), a `61 x 61` velocity grid on
@@ -90,8 +96,8 @@ For a compilation and 20-step smoke check before submitting production:
 ```bash
 cd /project/pi_roohie_umass_edu/JFM_revision_2026/DVM2D_THERMAL_JFM
 bash scripts/build_dvm_thermal.sh
-OMP_NUM_THREADS=8 bash scripts/run_dvm_thermal_case.sh bgk 0.2 smoke
-OMP_NUM_THREADS=8 bash scripts/run_dvm_thermal_case.sh shakhov 0.2 smoke
+OMP_NUM_THREADS=8 bash scripts/run_dvm_thermal_case.sh bgk 0.2 20 smoke
+OMP_NUM_THREADS=8 bash scripts/run_dvm_thermal_case.sh shakhov 0.2 20 smoke
 ```
 
 The same check can be submitted as a two-task CPU array:
@@ -111,7 +117,7 @@ sbatch scripts/run_unity_dvm_thermal_pilot.slurm
 Do not submit production until both pilot metadata files pass the acceptance
 checks below.
 
-For one production case only:
+For one production case only (for example, task 0 = BGK, Kn=20, RT=0.2):
 
 ```bash
 sbatch --array=0 scripts/run_unity_dvm_thermal_cpu.slurm
@@ -119,8 +125,8 @@ sbatch --array=0 scripts/run_unity_dvm_thermal_cpu.slurm
 
 ## Outputs
 
-Version-3 cases are written below `results_dvm_kn30_v3/`, leaving the earlier
-pilot results untouched for comparison.  Each case contains:
+Current cases are written below `results_dvm_jfm/`, leaving the earlier pilot
+results untouched for comparison. Each case contains:
 
 - `*_full.csv`: reconstructed full-domain quantitative fields;
 - `*_full.dat`: Tecplot point data;
