@@ -30,4 +30,4 @@ MODEL="${MODELS[$SLURM_ARRAY_TASK_ID]}"
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-16}"
 
 mamba run -n dsmc-gpu bash scripts/run_dvm_thermal_case.sh \
-  "$MODEL" 0.2 pilot
+  "$MODEL" 0.2 20 pilot
