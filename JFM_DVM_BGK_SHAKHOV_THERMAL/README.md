@@ -114,8 +114,12 @@ After smoke succeeds, run the supplied BGK/Shakhov pilot for the stronger
 sbatch scripts/run_unity_dvm_thermal_pilot.slurm
 ```
 
-Do not submit production until both pilot metadata files pass the acceptance
-checks below.
+The short pilot is a stability and invariant-preservation gate, not a steady
+solution. Before production, require zero projection failures, zero clipped
+updates, near-roundoff conservation/wall-flux diagnostics, and finite fields.
+`converged: false` is acceptable for this deliberately short pilot. The
+production cases themselves must pass every acceptance check below, including
+`converged: true`.
 
 For one production case only (for example, task 0 = BGK, Kn=20, RT=0.2):
 
