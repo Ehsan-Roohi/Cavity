@@ -5,8 +5,8 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=64G
-#SBATCH --time=48:00:00
-#SBATCH --array=0-3
+#SBATCH --time=5-00:00:00
+#SBATCH --array=0-11%4
 #SBATCH --output=slurm-dvm-%A_%a.out
 #SBATCH --error=slurm-dvm-%A_%a.err
 
@@ -26,10 +26,12 @@ gfortran -O3 -march=native -funroll-loops -fopenmp \
   -o "bin/dvm2d_thermal_cavity_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
 export DVM_BINARY="$PWD/bin/dvm2d_thermal_cavity_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
 
-MODELS=(bgk shakhov bgk shakhov)
-RTS=(0.2 0.2 0.5 0.5)
+MODELS=(bgk shakhov bgk shakhov bgk shakhov bgk shakhov bgk shakhov bgk shakhov)
+KNS=(20 20 10 10 5 5 20 20 10 10 5 5)
+RTS=(0.2 0.2 0.2 0.2 0.2 0.2 0.5 0.5 0.5 0.5 0.5 0.5)
 MODEL="${MODELS[$SLURM_ARRAY_TASK_ID]}"
+KN="${KNS[$SLURM_ARRAY_TASK_ID]}"
 RT="${RTS[$SLURM_ARRAY_TASK_ID]}"
 
 mamba run -n dsmc-gpu bash scripts/run_dvm_thermal_case.sh \
-  "$MODEL" "$RT" production
+  "$MODEL" "$RT" "$KN" production
