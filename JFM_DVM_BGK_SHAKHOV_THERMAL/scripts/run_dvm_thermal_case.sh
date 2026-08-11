@@ -4,7 +4,8 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 MODEL="${1:-shakhov}"
 RT="${2:-0.2}"
-LEVEL="${3:-production}"
+KN="${3:-20}"
+LEVEL="${4:-production}"
 
 if [[ "$MODEL" != "bgk" && "$MODEL" != "shakhov" ]]; then
   echo "MODEL must be bgk or shakhov" >&2
@@ -12,6 +13,10 @@ if [[ "$MODEL" != "bgk" && "$MODEL" != "shakhov" ]]; then
 fi
 if [[ "$RT" != "0.2" && "$RT" != "0.5" ]]; then
   echo "RT must be 0.2 or 0.5 for the prepared JFM cases" >&2
+  exit 2
+fi
+if ! [[ "$KN" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+  echo "KN must be a positive numeric paper Knudsen number" >&2
   exit 2
 fi
 
@@ -46,7 +51,8 @@ export OMP_PLACES="${OMP_PLACES:-cores}"
 export OMP_STACKSIZE="${OMP_STACKSIZE:-256M}"
 
 RTTAG=${RT/./p}
-OUT="$ROOT/results_dvm_kn30_v3/${MODEL}_Kn30_RT${RTTAG}_${LEVEL}_N${NX}_V${NV}"
+KNTAG=${KN/./p}
+OUT="$ROOT/results_dvm_jfm/${MODEL}_Kn${KNTAG}_RT${RTTAG}_${LEVEL}_N${NX}_V${NV}"
 mkdir -p "$OUT"
 cd "$OUT"
 
@@ -57,7 +63,7 @@ cat > dvm_cavity.in <<EOF
  nv = ${NV},
  vmin = -5.0,
  vmax = 5.0,
- kn = 30.0,
+ kn = ${KN},
  t_hot = 1.0,
  t_cold = ${RT},
  pr = 0.6666666666666666667,
@@ -73,13 +79,13 @@ cat > dvm_cavity.in <<EOF
  log_every = ${LOG_EVERY},
  save_every = 0,
  model = '${MODEL}',
- out_prefix = 'ThermalCavity_DVM_${MODEL}_Kn30_RT${RTTAG}',
+ out_prefix = 'ThermalCavity_DVM_${MODEL}_Kn${KNTAG}_RT${RTTAG}',
 /
 EOF
 
 "$BIN" 2>&1 | tee stdout.log
 
-PREFIX="ThermalCavity_DVM_${MODEL}_Kn30_RT${RTTAG}"
+PREFIX="ThermalCavity_DVM_${MODEL}_Kn${KNTAG}_RT${RTTAG}"
 python "$ROOT/tools/plot_dvm_thermal.py" \
   --csv "${PREFIX}_full.csv" \
   --metadata "${PREFIX}_metadata.json" \
