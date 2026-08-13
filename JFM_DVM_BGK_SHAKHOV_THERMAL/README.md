@@ -60,7 +60,7 @@ reflection. The job writes a ZIP archive in this project directory.
 On Unity, submit this exact case with one command:
 
 ```bash
-cd /project/pi_roohie_umass_edu/github_sync && { if [ -d Cavity/.git ]; then git -C Cavity fetch origin agent/add-jfm-dvm-thermal-cavity && git -C Cavity switch agent/add-jfm-dvm-thermal-cavity && git -C Cavity pull --ff-only; else git clone --branch agent/add-jfm-dvm-thermal-cavity --single-branch https://github.com/Ehsan-Roohi/Cavity.git Cavity; fi; } && cd Cavity/JFM_DVM_BGK_SHAKHOV_THERMAL && sbatch scripts/run_unity_dvm_shakhov_full_kn30_rt0p2.slurm
+cd /project/pi_roohie_umass_edu/JFM_revision_2026/Cavity-jfm-dvm-github && git fetch origin agent/add-jfm-dvm-thermal-cavity && git switch agent/add-jfm-dvm-thermal-cavity && git pull --ff-only && cd JFM_DVM_BGK_SHAKHOV_THERMAL && sbatch scripts/run_unity_dvm_shakhov_full_kn30_rt0p2.slurm
 ```
 
 The archive is named
