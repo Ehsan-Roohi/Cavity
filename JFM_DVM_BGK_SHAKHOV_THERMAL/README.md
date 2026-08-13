@@ -8,8 +8,12 @@ cavity code to the stationary thermal cavity in JFM-2026-1491.
 - Square cavity with **no external force** and no moving wall.
 - Horizontal walls: `T_hot=1`; vertical walls: `T_cold=RT`.
 - Fully diffuse, impermeable physical walls.
-- Quarter domain `x,y in [0,1/2]`, with exact specular symmetry conditions
-  at `x=0` and `y=0`; full-domain fields are reconstructed by parity.
+- Native full domain `x,y in [-1/2,1/2]`, with both horizontal walls hot
+  (`T=1`) and both vertical walls cold (`T=RT`), all fully diffuse.
+- Optional quarter verification mode `x,y in [0,1/2]`, with exact specular
+  symmetry conditions at `x=0` and `y=0`; its full-domain fields are
+  reconstructed by parity. Production JFM data should use the native full
+  mode so symmetry is verified rather than imposed.
 - Selectable model-equation target: `bgk` or `shakhov` (`Pr=2/3`).
 - The Shakhov correction uses the same recorded `[0,2]` weight limiter as
   the GPU particle implementation.  Limiting is applied before the local
@@ -39,6 +43,32 @@ continues to be DSMC.
 
 ## Prepared production cases
 
+### Exact native full-cavity case requested for the JFM revision
+
+The dedicated Unity job solves the current strongest thermal case directly
+on the complete square, without symmetry boundaries:
+
+| Model | Paper Kn | RT | Pr | Physical grid | Velocity grid |
+|---|---:|---:|---:|---:|---:|
+| Shakhov | 30 | 0.2 | 2/3 | `102 x 102` | `61 x 61` on `[-5,5]^2` |
+
+It advances for at most 120,000 iterations, does not test the convergence
+gate before 20,000 iterations, and requires the maximum logged residual to
+fall below `1e-8`. All four physical walls use zero-mass-flux diffuse
+reflection. The job writes a ZIP archive in this project directory.
+
+On Unity, submit this exact case with one command:
+
+```bash
+cd /project/pi_roohie_umass_edu/github_sync && { if [ -d Cavity/.git ]; then git -C Cavity fetch origin agent/add-jfm-dvm-thermal-cavity && git -C Cavity switch agent/add-jfm-dvm-thermal-cavity && git -C Cavity pull --ff-only; else git clone --branch agent/add-jfm-dvm-thermal-cavity --single-branch https://github.com/Ehsan-Roohi/Cavity.git Cavity; fi; } && cd Cavity/JFM_DVM_BGK_SHAKHOV_THERMAL && sbatch scripts/run_unity_dvm_shakhov_full_kn30_rt0p2.slurm
+```
+
+The archive is named
+`JFM_DVM_SHAKHOV_FULL_Kn30_RT0p2_job<JOBID>.zip` and is placed in
+`JFM_DVM_BGK_SHAKHOV_THERMAL/`, not inside the results subdirectory.
+
+### Existing quarter-domain comparison matrix
+
 The production Slurm array contains the 12 BGK/Shakhov cases needed for the
 current revision campaign:
 
@@ -47,11 +77,11 @@ current revision campaign:
 | 0--5 | BGK/Shakhov | 20, 10, 5 | 0.2 |
 | 6--11 | BGK/Shakhov | 20, 10, 5 | 0.5 |
 
-The single-case runner is general in paper Kn and is called as
-`run_dvm_thermal_case.sh MODEL RT KN LEVEL`.  For example:
+The single-case runner is general in paper Kn and domain mode and is called as
+`run_dvm_thermal_case.sh MODEL RT KN LEVEL DOMAIN`. For example:
 
 ```bash
-OMP_NUM_THREADS=16 bash scripts/run_dvm_thermal_case.sh shakhov 0.2 10 production
+OMP_NUM_THREADS=16 bash scripts/run_dvm_thermal_case.sh shakhov 0.2 30 production full
 ```
 
 Production resolution is `51 x 51` cells in the quarter domain (equivalent to
@@ -132,10 +162,10 @@ sbatch --array=0 scripts/run_unity_dvm_thermal_cpu.slurm
 Current cases are written below `results_dvm_jfm/`, leaving the earlier pilot
 results untouched for comparison. Each case contains:
 
-- `*_full.csv`: reconstructed full-domain quantitative fields;
+- `*_full.csv`: native or reconstructed full-domain quantitative fields;
 - `*_full.dat`: Tecplot point data;
-- `*_quarter.dat`: raw quarter-domain block data;
-- `*_quarter_moments.dat`: higher moments;
+- `*_full_native.dat` and `*_full_native_moments.dat` for native full runs;
+- `*_quarter.dat` and `*_quarter_moments.dat` for quarter verification runs;
 - `*_metadata.json`: definition, grid, convergence, conservation and wall
   diagnostics;
 - `*_postcheck.json`: exact parity checks from the reconstructed fields;

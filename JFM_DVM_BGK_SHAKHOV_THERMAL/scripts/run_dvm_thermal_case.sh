@@ -6,6 +6,7 @@ MODEL="${1:-shakhov}"
 RT="${2:-0.2}"
 KN="${3:-20}"
 LEVEL="${4:-production}"
+DOMAIN="${5:-quarter}"
 
 if [[ "$MODEL" != "bgk" && "$MODEL" != "shakhov" ]]; then
   echo "MODEL must be bgk or shakhov" >&2
@@ -17,6 +18,10 @@ if [[ "$RT" != "0.2" && "$RT" != "0.5" ]]; then
 fi
 if ! [[ "$KN" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
   echo "KN must be a positive numeric paper Knudsen number" >&2
+  exit 2
+fi
+if [[ "$DOMAIN" != "quarter" && "$DOMAIN" != "full" ]]; then
+  echo "DOMAIN must be quarter or full" >&2
   exit 2
 fi
 
@@ -39,6 +44,17 @@ case "$LEVEL" in
     ;;
 esac
 
+# Preserve the physical resolution of each quarter-domain level when the
+# complete [-1/2,1/2]^2 cavity is solved natively.
+if [[ "$DOMAIN" == "full" ]]; then
+  case "$LEVEL" in
+    smoke) NX=25; NY=25 ;;
+    pilot) NX=50; NY=50 ;;
+    production) NX=102; NY=102 ;;
+    fine) NX=162; NY=162 ;;
+  esac
+fi
+
 BIN="${DVM_BINARY:-$ROOT/bin/dvm2d_thermal_cavity}"
 if [[ ! -x "$BIN" ]]; then
   bash "$ROOT/scripts/build_dvm_thermal.sh"
@@ -52,7 +68,7 @@ export OMP_STACKSIZE="${OMP_STACKSIZE:-256M}"
 
 RTTAG=${RT/./p}
 KNTAG=${KN/./p}
-OUT="$ROOT/results_dvm_jfm/${MODEL}_Kn${KNTAG}_RT${RTTAG}_${LEVEL}_N${NX}_V${NV}"
+OUT="$ROOT/results_dvm_jfm/${MODEL}_${DOMAIN}_Kn${KNTAG}_RT${RTTAG}_${LEVEL}_N${NX}_V${NV}"
 mkdir -p "$OUT"
 cd "$OUT"
 
@@ -79,13 +95,14 @@ cat > dvm_cavity.in <<EOF
  log_every = ${LOG_EVERY},
  save_every = 0,
  model = '${MODEL}',
- out_prefix = 'ThermalCavity_DVM_${MODEL}_Kn${KNTAG}_RT${RTTAG}',
+ domain_mode = '${DOMAIN}',
+ out_prefix = 'ThermalCavity_DVM_${MODEL}_${DOMAIN}_Kn${KNTAG}_RT${RTTAG}',
 /
 EOF
 
 "$BIN" 2>&1 | tee stdout.log
 
-PREFIX="ThermalCavity_DVM_${MODEL}_Kn${KNTAG}_RT${RTTAG}"
+PREFIX="ThermalCavity_DVM_${MODEL}_${DOMAIN}_Kn${KNTAG}_RT${RTTAG}"
 python "$ROOT/tools/plot_dvm_thermal.py" \
   --csv "${PREFIX}_full.csv" \
   --metadata "${PREFIX}_metadata.json" \

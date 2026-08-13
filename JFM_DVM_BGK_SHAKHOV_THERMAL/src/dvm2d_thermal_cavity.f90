@@ -3,13 +3,14 @@ program dvm2d_thermal_cavity
   integer, parameter :: dp = selected_real_kind(15, 307)
   real(dp), parameter :: pi = 3.141592653589793238462643383279502884197_dp
   real(dp), parameter :: eps = 1.0e-300_dp
-  character(len=*), parameter :: solver_version = '2026-07-21-jfm-thermal-dvm-v3'
+  character(len=*), parameter :: solver_version = '2026-08-12-jfm-thermal-dvm-v4-full-domain'
 
   integer :: nx, ny, nv, steps, min_steps, log_every, save_every
   integer :: projection_max_iter
   real(dp) :: vmin, vmax, kn, t_hot, t_cold, pr, cfl, tol, floor_val
   real(dp) :: shakhov_weight_min, shakhov_weight_max, projection_tol
-  character(len=32) :: model
+  real(dp) :: domain_mass_factor
+  character(len=32) :: model, domain_mode
   character(len=256) :: out_prefix
   logical :: converged
 
@@ -36,7 +37,7 @@ program dvm2d_thermal_cavity
   namelist /params/ nx, ny, nv, vmin, vmax, kn, t_hot, t_cold, pr, &
        cfl, tol, floor_val, shakhov_weight_min, shakhov_weight_max, &
        projection_max_iter, projection_tol, &
-       steps, min_steps, log_every, save_every, model, out_prefix
+       steps, min_steps, log_every, save_every, model, domain_mode, out_prefix
 
   call set_defaults()
   call read_input()
@@ -52,11 +53,19 @@ program dvm2d_thermal_cavity
   call boole_grid(nv, vmin, vmax, cv, wv)
   call make_weight(nv, wu, wv, w)
 
-  ! One quarter of the paper domain is solved: x,y in [0,1/2].  The planes
-  ! x=0 and y=0 are exact specular symmetry boundaries.  The physical right
-  ! and top walls are diffuse at T_cold and T_hot, respectively.
-  dx = 0.5_dp / real(nx, dp)
-  dy = 0.5_dp / real(ny, dp)
+  if (trim(domain_mode) == 'quarter') then
+     ! Quarter-domain verification mode: x,y in [0,1/2], with specular
+     ! symmetry at x=0 and y=0 and physical walls at x=y=1/2.
+     dx = 0.5_dp / real(nx, dp)
+     dy = 0.5_dp / real(ny, dp)
+     domain_mass_factor = 4.0_dp
+  else
+     ! Native full paper domain: x,y in [-1/2,1/2].  All four boundaries
+     ! are stationary, impermeable, fully diffuse physical walls.
+     dx = 1.0_dp / real(nx, dp)
+     dy = 1.0_dp / real(ny, dp)
+     domain_mass_factor = 1.0_dp
+  end if
   vmax_abs = max(maxval(abs(cu)), maxval(abs(cv)))
   dt = cfl / (vmax_abs/dx + vmax_abs/dy + eps)
 
@@ -70,7 +79,7 @@ program dvm2d_thermal_cavity
   call init_geometry()
   call init_distribution()
   call compute_moments_all(h, b)
-  initial_mass = 4.0_dp*sum(rho)*dx*dy
+  initial_mass = domain_mass_factor*sum(rho)*dx*dy
   max_target_conservation_error = 0.0_dp
   max_physical_wall_mass_flux = 0.0_dp
   negative_target_values = 0_8
@@ -91,7 +100,7 @@ program dvm2d_thermal_cavity
 
   write(*,*) 'JFM stationary thermal-cavity DVM run'
   write(*,*) 'solver_version=', solver_version
-  write(*,*) 'quarter nx,ny,nv=', nx, ny, nv
+  write(*,*) 'domain_mode=', trim(domain_mode), ' nx,ny,nv=', nx, ny, nv
   write(*,*) 'model=', trim(model), ' paper Kn=', kn, ' RT=', t_cold/t_hot, ' dt=', dt
   write(*,*) 'collision time: tau=2*Kn/(rho*sqrt(pi*T))'
 
@@ -122,7 +131,7 @@ program dvm2d_thermal_cavity
 
   close(20)
   call compute_boundary_flux_diagnostic(max_physical_wall_mass_flux)
-  final_mass = 4.0_dp*sum(rho)*dx*dy
+  final_mass = domain_mass_factor*sum(rho)*dx*dy
   mass_drift_relative = abs(final_mass-initial_mass)/(abs(initial_mass)+eps)
   call write_all_outputs(trim(out_prefix))
   call write_metadata(last_iter, real(last_iter,dp)*dt, converged, final_res)
@@ -140,6 +149,7 @@ contains
     projection_max_iter = 12; projection_tol = 1.0e-12_dp
     steps = 120000; min_steps = 20000; log_every = 200; save_every = 0
     model = 'shakhov'
+    domain_mode = 'full'
     out_prefix = 'cavity_dvm'
   end subroutine set_defaults
 
@@ -163,6 +173,11 @@ contains
        error stop 2
     end if
     model = model_clean
+    domain_mode = trim(adjustl(domain_mode))
+    if (domain_mode /= 'quarter' .and. domain_mode /= 'full') then
+       write(*,*) 'ERROR: domain_mode must be quarter or full; got ', trim(domain_mode)
+       error stop 2
+    end if
     if (nx < 8 .or. ny < 8 .or. nv < 9) error stop 'nx, ny, or nv is too small'
     if (vmin >= 0.0_dp .or. vmax <= 0.0_dp .or. abs(vmax+vmin) > 1.0e-12_dp) &
          error stop 'velocity interval must be symmetric about zero'
@@ -214,8 +229,13 @@ contains
     integer :: i,j
     do j=1,ny
        do i=1,nx
-          x(i,j) = (real(i,dp)-0.5_dp)*dx
-          y(i,j) = (real(j,dp)-0.5_dp)*dy
+          if (trim(domain_mode) == 'quarter') then
+             x(i,j) = (real(i,dp)-0.5_dp)*dx
+             y(i,j) = (real(j,dp)-0.5_dp)*dy
+          else
+             x(i,j) = -0.5_dp + (real(i,dp)-0.5_dp)*dx
+             y(i,j) = -0.5_dp + (real(j,dp)-0.5_dp)*dy
+          end if
        end do
     end do
   end subroutine init_geometry
@@ -307,20 +327,30 @@ contains
   end function diffuse_rho_wall
 
   subroutine advect_step()
-    real(dp), allocatable :: rhoR(:), rhoT(:)
+    real(dp), allocatable :: rhoL(:), rhoR(:), rhoB(:), rhoT(:)
     integer :: i,j,ku,kv,kur,kvr
     real(dp) :: fL, fR, fB, fT, gL, gR, gB, gT
-    real(dp) :: MR, MT
-    allocate(rhoR(ny), rhoT(nx))
+    real(dp) :: ML, MR, MB, MT
+    allocate(rhoL(ny), rhoR(ny), rhoB(nx), rhoT(nx))
 
     do j=1,ny
+       if (trim(domain_mode) == 'full') then
+          rhoL(j) = diffuse_rho_wall(h(1,j,:,:), 'left', 0.0_dp, 0.0_dp, t_cold)
+       else
+          rhoL(j) = 0.0_dp
+       end if
        rhoR(j) = diffuse_rho_wall(h(nx,j,:,:), 'right', 0.0_dp, 0.0_dp, t_cold)
     end do
     do i=1,nx
+       if (trim(domain_mode) == 'full') then
+          rhoB(i) = diffuse_rho_wall(h(i,1,:,:), 'bottom', 0.0_dp, 0.0_dp, t_hot)
+       else
+          rhoB(i) = 0.0_dp
+       end if
        rhoT(i) = diffuse_rho_wall(h(i,ny,:,:), 'top', 0.0_dp, 0.0_dp, t_hot)
     end do
 
-    !$omp parallel do collapse(4) private(i,j,ku,kv,kur,kvr,fL,fR,fB,fT,gL,gR,gB,gT,MR,MT)
+    !$omp parallel do collapse(4) private(i,j,ku,kv,kur,kvr,fL,fR,fB,fT,gL,gR,gB,gT,ML,MR,MB,MT)
     do kv=1,nv
        do ku=1,nv
           do j=1,ny
@@ -328,14 +358,26 @@ contains
                 kur = nv + 1 - ku
                 kvr = nv + 1 - kv
 
-                ! x=0 symmetry plane: exact specular reflection.
+                ! Left boundary: specular symmetry in quarter mode, otherwise
+                ! the physical cold diffuse wall at x=-1/2.
                 if (i == 1) then
-                   if (cu(ku) >= 0.0_dp) then
-                      fL = cu(ku)*h(i,j,kur,kv)
-                      gL = cu(ku)*b(i,j,kur,kv)
+                   if (trim(domain_mode) == 'quarter') then
+                      if (cu(ku) >= 0.0_dp) then
+                         fL = cu(ku)*h(i,j,kur,kv)
+                         gL = cu(ku)*b(i,j,kur,kv)
+                      else
+                         fL = cu(ku)*h(i,j,ku,kv)
+                         gL = cu(ku)*b(i,j,ku,kv)
+                      end if
                    else
-                      fL = cu(ku)*h(i,j,ku,kv)
-                      gL = cu(ku)*b(i,j,ku,kv)
+                      if (cu(ku) >= 0.0_dp) then
+                         ML = rhoL(j)*wall_unit_M(ku,kv,0.0_dp,0.0_dp,t_cold)
+                         fL = cu(ku)*ML
+                         gL = cu(ku)*(0.5_dp*t_cold*ML)
+                      else
+                         fL = cu(ku)*h(i,j,ku,kv)
+                         gL = cu(ku)*b(i,j,ku,kv)
+                      end if
                    end if
                 else
                    if (cu(ku) >= 0.0_dp) then
@@ -367,14 +409,26 @@ contains
                    end if
                 end if
 
-                ! y=0 symmetry plane: exact specular reflection.
+                ! Bottom boundary: specular symmetry in quarter mode,
+                ! otherwise the physical hot diffuse wall at y=-1/2.
                 if (j == 1) then
-                   if (cv(kv) >= 0.0_dp) then
-                      fB = cv(kv)*h(i,j,ku,kvr)
-                      gB = cv(kv)*b(i,j,ku,kvr)
+                   if (trim(domain_mode) == 'quarter') then
+                      if (cv(kv) >= 0.0_dp) then
+                         fB = cv(kv)*h(i,j,ku,kvr)
+                         gB = cv(kv)*b(i,j,ku,kvr)
+                      else
+                         fB = cv(kv)*h(i,j,ku,kv)
+                         gB = cv(kv)*b(i,j,ku,kv)
+                      end if
                    else
-                      fB = cv(kv)*h(i,j,ku,kv)
-                      gB = cv(kv)*b(i,j,ku,kv)
+                      if (cv(kv) >= 0.0_dp) then
+                         MB = rhoB(i)*wall_unit_M(ku,kv,0.0_dp,0.0_dp,t_hot)
+                         fB = cv(kv)*MB
+                         gB = cv(kv)*(0.5_dp*t_hot*MB)
+                      else
+                         fB = cv(kv)*h(i,j,ku,kv)
+                         gB = cv(kv)*b(i,j,ku,kv)
+                      end if
                    end if
                 else
                    if (cv(kv) >= 0.0_dp) then
@@ -414,7 +468,7 @@ contains
     end do
     !$omp end parallel do
 
-    deallocate(rhoR, rhoT)
+    deallocate(rhoL, rhoR, rhoB, rhoT)
   end subroutine advect_step
 
   subroutine collide_step()
@@ -781,9 +835,15 @@ contains
     character(len=*), intent(in) :: prefix
     integer :: unit, is(6), js(6)
     character(len=24) :: names(6)
+    character(len=32) :: native_tag
     real(dp) :: speed(nx,ny)
     call compute_moments_all(h,b)
-    open(newunit=unit, file=trim(prefix)//'_quarter.dat', status='replace', action='write')
+    if (trim(domain_mode) == 'quarter') then
+       native_tag = '_quarter'
+    else
+       native_tag = '_full_native'
+    end if
+    open(newunit=unit, file=trim(prefix)//trim(native_tag)//'.dat', status='replace', action='write')
     write(unit,*) 'VARIABLES = X, Y, RHO, U, V, T, P, QX_PAPER, QY_PAPER'
     write(unit,*) 'ZONE I = ', nx, ', J = ', ny, ', DATAPACKING=BLOCK'
     call write_block(unit,x); call write_block(unit,y); call write_block(unit,rho); call write_block(unit,ux)
@@ -791,7 +851,7 @@ contains
     call write_block(unit,2.0_dp*qx); call write_block(unit,2.0_dp*qy)
     close(unit)
 
-    open(newunit=unit, file=trim(prefix)//'_quarter_moments.dat', status='replace', action='write')
+    open(newunit=unit, file=trim(prefix)//trim(native_tag)//'_moments.dat', status='replace', action='write')
     write(unit,*) 'VARIABLES = X, Y, RHO, U, V, T, P, QX_PAPER, QY_PAPER, THETAX, THETAY, THETAZ, SIGXX, SIGYY, SIGXY, M3X, M3Y, SX, SY, M4X, M4Y, KX, KY'
     write(unit,*) 'ZONE I = ', nx, ', J = ', ny, ', DATAPACKING=BLOCK'
     call write_block(unit,x); call write_block(unit,y); call write_block(unit,rho); call write_block(unit,ux)
@@ -803,12 +863,36 @@ contains
     call write_block(unit,m4x); call write_block(unit,m4y); call write_block(unit,kx); call write_block(unit,ky)
     close(unit)
 
-    call write_reconstructed_full_outputs(prefix)
+    if (trim(domain_mode) == 'quarter') then
+       call write_reconstructed_full_outputs(prefix)
+    else
+       call write_native_full_outputs(prefix)
+    end if
 
     speed = sqrt(ux*ux + uy*uy)
     call choose_samples(speed, is, js, names)
     call write_vdf_samples(trim(prefix)//'_vdf_samples.dat', trim(prefix)//'_vdf_samples.txt', is, js, names)
   end subroutine write_all_outputs
+
+  subroutine write_native_full_outputs(prefix)
+    character(len=*), intent(in) :: prefix
+    integer :: unit_dat, unit_csv, i, j
+    open(newunit=unit_dat, file=trim(prefix)//'_full.dat', status='replace', action='write')
+    write(unit_dat,*) 'VARIABLES = X, Y, RHO, U, V, T, P, QX_PAPER, QY_PAPER, SIGXX, SIGYY, SIGXY'
+    write(unit_dat,*) 'ZONE I = ', nx, ', J = ', ny, ', DATAPACKING=POINT'
+    open(newunit=unit_csv, file=trim(prefix)//'_full.csv', status='replace', action='write')
+    write(unit_csv,'(A)') 'x,y,rho,u,v,T,p,qx_paper,qy_paper,sigxx,sigyy,sigxy'
+    do j=1,ny
+       do i=1,nx
+          write(unit_dat,'(12(ES23.16,1X))') x(i,j),y(i,j),rho(i,j),ux(i,j),uy(i,j),temp(i,j), &
+               press(i,j),2.0_dp*qx(i,j),2.0_dp*qy(i,j),sigxx(i,j),sigyy(i,j),sigxy(i,j)
+          write(unit_csv,'(*(g0,:,","))') x(i,j),y(i,j),rho(i,j),ux(i,j),uy(i,j),temp(i,j), &
+               press(i,j),2.0_dp*qx(i,j),2.0_dp*qy(i,j),sigxx(i,j),sigyy(i,j),sigxy(i,j)
+       end do
+    end do
+    close(unit_dat)
+    close(unit_csv)
+  end subroutine write_native_full_outputs
 
   subroutine write_reconstructed_full_outputs(prefix)
     character(len=*), intent(in) :: prefix
@@ -854,10 +938,17 @@ contains
     character(len=24), intent(out) :: names(6)
     names = (/ 'center                  ', 'top_mid                 ', 'bottom_mid              ', 'left_mid                ', 'right_mid               ', 'max_speed               ' /)
     call nearest_cell(0.0_dp, 0.0_dp, is(1), js(1))
-    call nearest_cell(0.25_dp, 0.475_dp, is(2), js(2))
-    call nearest_cell(0.25_dp, 0.025_dp, is(3), js(3))
-    call nearest_cell(0.025_dp, 0.25_dp, is(4), js(4))
-    call nearest_cell(0.475_dp, 0.25_dp, is(5), js(5))
+    if (trim(domain_mode) == 'quarter') then
+       call nearest_cell(0.25_dp, 0.475_dp, is(2), js(2))
+       call nearest_cell(0.25_dp, 0.025_dp, is(3), js(3))
+       call nearest_cell(0.025_dp, 0.25_dp, is(4), js(4))
+       call nearest_cell(0.475_dp, 0.25_dp, is(5), js(5))
+    else
+       call nearest_cell(0.0_dp, 0.475_dp, is(2), js(2))
+       call nearest_cell(0.0_dp,-0.475_dp, is(3), js(3))
+       call nearest_cell(-0.475_dp,0.0_dp, is(4), js(4))
+       call nearest_cell(0.475_dp, 0.0_dp, is(5), js(5))
+    end if
     call max_speed_cell(speed, is(6), js(6))
   end subroutine choose_samples
 
@@ -922,6 +1013,23 @@ contains
     integer :: i,j,ku,kv
     real(dp) :: rhow, flux, fw
     maxflux = 0.0_dp
+    if (trim(domain_mode) == 'full') then
+       do j=1,ny
+          rhow = diffuse_rho_wall(h(1,j,:,:),'left',0.0_dp,0.0_dp,t_cold)
+          flux = 0.0_dp
+          do kv=1,nv; do ku=1,nv
+             if (cu(ku) > 0.0_dp) then
+                fw = rhow*wall_unit_M(ku,kv,0.0_dp,0.0_dp,t_cold)
+             else if (cu(ku) < 0.0_dp) then
+                fw = h(1,j,ku,kv)
+             else
+                fw = 0.0_dp
+             end if
+             flux = flux + cu(ku)*fw*w(ku,kv)
+          end do; end do
+          maxflux = max(maxflux,abs(flux))
+       end do
+    end if
     do j=1,ny
        rhow = diffuse_rho_wall(h(nx,j,:,:),'right',0.0_dp,0.0_dp,t_cold)
        flux = 0.0_dp
@@ -937,6 +1045,23 @@ contains
        end do; end do
        maxflux = max(maxflux,abs(flux))
     end do
+    if (trim(domain_mode) == 'full') then
+       do i=1,nx
+          rhow = diffuse_rho_wall(h(i,1,:,:),'bottom',0.0_dp,0.0_dp,t_hot)
+          flux = 0.0_dp
+          do kv=1,nv; do ku=1,nv
+             if (cv(kv) > 0.0_dp) then
+                fw = rhow*wall_unit_M(ku,kv,0.0_dp,0.0_dp,t_hot)
+             else if (cv(kv) < 0.0_dp) then
+                fw = h(i,1,ku,kv)
+             else
+                fw = 0.0_dp
+             end if
+             flux = flux + cv(kv)*fw*w(ku,kv)
+          end do; end do
+          maxflux = max(maxflux,abs(flux))
+       end do
+    end if
     do i=1,nx
        rhow = diffuse_rho_wall(h(i,ny,:,:),'top',0.0_dp,0.0_dp,t_hot)
        flux = 0.0_dp
@@ -961,7 +1086,7 @@ contains
     integer :: unit
     real(dp) :: maxspeed, kinetic_energy, tail_relative, rt, effective_pr
     maxspeed = maxval(sqrt(ux*ux+uy*uy))
-    kinetic_energy = 4.0_dp*sum(rho*(ux*ux+uy*uy))*dx*dy
+    kinetic_energy = domain_mass_factor*sum(rho*(ux*ux+uy*uy))*dx*dy
     tail_relative = exp(-min(vmin*vmin,vmax*vmax)/t_hot)
     rt = t_cold/t_hot
     if (trim(model) == 'bgk') then
@@ -974,12 +1099,22 @@ contains
     write(unit,'(A,A,A)') '  "solver_version": "', solver_version, '",'
     write(unit,'(A)') '  "problem": "stationary thermal square cavity",'
     write(unit,'(A)') '  "no_external_force": true,'
-    write(unit,'(A)') '  "quarter_domain": true,'
-    write(unit,'(A)') '  "symmetry_planes": ["x=0 specular", "y=0 specular"],'
-    write(unit,'(A,I0,A)') '  "quarter_nx": ', nx, ','
-    write(unit,'(A,I0,A)') '  "quarter_ny": ', ny, ','
-    write(unit,'(A,I0,A)') '  "full_reconstructed_nx": ', 2*nx, ','
-    write(unit,'(A,I0,A)') '  "full_reconstructed_ny": ', 2*ny, ','
+    if (trim(domain_mode) == 'quarter') then
+       write(unit,'(A)') '  "domain_mode": "quarter",'
+       write(unit,'(A)') '  "quarter_domain": true,'
+       write(unit,'(A)') '  "symmetry_planes": ["x=0 specular", "y=0 specular"],'
+       write(unit,'(A,I0,A)') '  "quarter_nx": ', nx, ','
+       write(unit,'(A,I0,A)') '  "quarter_ny": ', ny, ','
+       write(unit,'(A,I0,A)') '  "full_reconstructed_nx": ', 2*nx, ','
+       write(unit,'(A,I0,A)') '  "full_reconstructed_ny": ', 2*ny, ','
+    else
+       write(unit,'(A)') '  "domain_mode": "full",'
+       write(unit,'(A)') '  "quarter_domain": false,'
+       write(unit,'(A)') '  "symmetry_planes": [],'
+       write(unit,'(A,I0,A)') '  "full_native_nx": ', nx, ','
+       write(unit,'(A,I0,A)') '  "full_native_ny": ', ny, ','
+       write(unit,'(A)') '  "physical_walls": ["left cold diffuse", "right cold diffuse", "bottom hot diffuse", "top hot diffuse"],'
+    end if
     write(unit,'(A,I0,A)') '  "nv": ', nv, ','
     write(unit,'(A,ES23.16,A)') '  "vmin": ', vmin, ','
     write(unit,'(A,ES23.16,A)') '  "vmax": ', vmax, ','
