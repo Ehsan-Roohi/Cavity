@@ -1,0 +1,7 @@
+bin/
+results_dvm_jfm/
+slurm-*.out
+slurm-*.err
+__pycache__/
+*.mod
+*.o

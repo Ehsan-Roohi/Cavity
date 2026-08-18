@@ -1,0 +1,9 @@
+&params
+ nx=102, ny=102, nv=61, vmin=-5.0, vmax=5.0,
+ kn=30.0, t_hot=1.0, t_cold=0.5, pr=0.6666666666666667,
+ cfl=0.45, tol=1.0e-8, floor_val=0.0,
+ shakhov_weight_min=0.0, shakhov_weight_max=2.0,
+ projection_max_iter=12, projection_tol=1.0e-12,
+ steps=120000, min_steps=20000, log_every=200, save_every=0,
+ model='bgk', domain_mode='full', out_prefix='ThermalCavity_DVM_bgk_full_Kn30_RT0p5',
+/
