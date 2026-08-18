@@ -26,9 +26,12 @@ solver.  Filenames preserve the experiment history.  Before citing a numerical
 result, record the exact commit, input data, split/seed, mesh or DSMC settings,
 and an independent reference comparison.
 
+The deterministic JFM thermal-cavity draft is tracked separately in
+[`RESEARCH_STATUS.md`](RESEARCH_STATUS.md); it is not part of the default
+notebook baseline.
+
 ## Data, citation, and license
 
 Large input/output data are not versioned consistently across the historical
 experiments.  No repository-wide citation metadata or license is declared yet;
 choose them only after confirming authorship and the intended release scope.
-
